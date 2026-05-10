@@ -2,68 +2,56 @@ import { createServerFn } from "@tanstack/react-start";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway";
-import type { Transaction } from "./transactions";
 
-const TxnSchema = z.object({
-  id: z.string(),
-  timestamp: z.string(),
-  cardholder: z.string(),
-  amount: z.number(),
-  currency: z.string(),
-  merchant: z.string(),
-  category: z.string(),
-  city: z.string(),
-  country: z.string(),
-  channel: z.enum(["in-store", "online", "atm"]),
-  device: z.string().optional(),
-  ipCountry: z.string().optional(),
-  cardPresent: z.boolean(),
-  avgAmount: z.number(),
-  homeCountry: z.string(),
-  txnsLast10Min: z.number(),
+const InputSchema = z.object({
+  upiId: z.string().min(3).max(100),
+  amount: z.number().positive().max(10_000_000),
+  note: z.string().max(280).optional(),
+  heuristicScore: z.number().min(0).max(100),
+  heuristicSignals: z.array(z.string()).max(20),
 });
 
 const ResultSchema = z.object({
-  riskScore: z.number().min(0).max(100).describe("0=safe, 100=certain fraud"),
-  verdict: z.enum(["approve", "review", "block"]),
+  riskScore: z.number().min(0).max(100),
+  verdict: z.enum(["safe", "review", "fraud"]),
   confidence: z.number().min(0).max(1),
-  signals: z.array(z.string()).describe("Short fraud signals detected"),
-  reasoning: z.string().describe("2-3 sentence plain-English explanation"),
+  signals: z.array(z.string()),
+  reasoning: z.string(),
   recommendedAction: z.string(),
 });
 
 export type FraudAnalysis = z.infer<typeof ResultSchema>;
 
-export const analyzeTransaction = createServerFn({ method: "POST" })
-  .inputValidator((input: { transaction: Transaction }) => ({
-    transaction: TxnSchema.parse(input.transaction),
-  }))
+export const analyzeUpi = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }) => {
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
-      return {
-        error: "AI gateway not configured",
-        analysis: null as FraudAnalysis | null,
-      };
+      return { error: "AI gateway not configured", analysis: null as FraudAnalysis | null };
     }
 
     const gateway = createLovableAiGatewayProvider(key);
     const model = gateway("google/gemini-3-flash-preview");
 
-    const prompt = `You are a senior payments fraud analyst. Analyze this credit card transaction and return a structured fraud assessment.
+    const prompt = `You are a senior UPI (India) payments fraud analyst. Decide if this UPI payment is likely a scam or fraud.
 
-Detection signals to consider:
-- Unusual spending vs the cardholder's average
-- Velocity (many transactions in a short window)
-- Geographic anomalies (transaction country vs home country, IP mismatches, impossible travel)
-- Off-hours activity
-- High-risk merchant categories (gambling, crypto, jewelry, money transfer)
-- Untrusted devices, missing card-present signal for high amounts
+Common UPI fraud patterns to consider:
+- Fake "KYC", "refund", "lottery", "cashback", "support" or "officer" UPI IDs
+- Unknown / unofficial PSP handles (legitimate examples: @oksbi, @okhdfcbank, @ybl, @paytm, @okicici, @okaxis)
+- Suspiciously high amounts, or tiny "verification" amounts (₹1, ₹11)
+- Notes containing links, urgency, OTP requests, or scam keywords
+- Random-looking long alphanumeric handles
 
-Transaction:
-${JSON.stringify(data.transaction, null, 2)}
+Payment under review:
+- UPI ID: ${data.upiId}
+- Amount: ₹${data.amount}
+- Note: ${data.note ?? "(none)"}
 
-Return riskScore 0-100, verdict (approve <30, review 30-69, block >=70), 2-5 short signal strings, and clear reasoning a fraud analyst would write in a case file.`;
+Heuristic pre-screening already produced:
+- Score: ${data.heuristicScore}/100
+- Signals: ${data.heuristicSignals.join("; ") || "none"}
+
+Return riskScore 0-100, verdict (safe < 30, review 30-69, fraud >= 70), 2-5 short signals, plain-English reasoning a user can understand, and a clear recommendedAction (e.g. "Proceed", "Verify recipient by phone first", "Do not pay — report to bank").`;
 
     try {
       const { experimental_output } = await generateText({
@@ -74,7 +62,7 @@ Return riskScore 0-100, verdict (approve <30, review 30-69, block >=70), 2-5 sho
       return { error: null, analysis: experimental_output as FraudAnalysis };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      console.error("analyzeTransaction failed:", msg);
+      console.error("analyzeUpi failed:", msg);
       return { error: msg, analysis: null as FraudAnalysis | null };
     }
   });
