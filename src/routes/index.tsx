@@ -62,13 +62,10 @@ function FraudDashboard() {
     setError(null);
     setLoading(true);
     try {
-      const { transaction: _omit, score: _s, signals: _sg, ...rest } = {
-        ...row,
-      } as Row;
-      void _omit;
+      const { score: _s, signals: _sg, ...rest } = row;
       void _s;
       void _sg;
-      const res = await analyze({ data: { transaction: rest as Transaction } });
+      const res = await analyze({ data: { transaction: rest } });
       if (res.error) setError(res.error);
       else setAnalysis(res.analysis);
     } catch (e) {
