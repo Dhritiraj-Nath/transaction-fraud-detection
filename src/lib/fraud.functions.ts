@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 const InputSchema = z.object({
   upiId: z.string().min(3).max(100),
@@ -25,13 +25,13 @@ export type FraudAnalysis = z.infer<typeof ResultSchema>;
 export const analyzeUpi = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!key) {
-      return { error: "AI gateway not configured", analysis: null as FraudAnalysis | null };
+      return { error: "Google AI API Key not configured. Please add GOOGLE_GENERATIVE_AI_API_KEY to your .env file.", analysis: null as FraudAnalysis | null };
     }
 
-    const gateway = createLovableAiGatewayProvider(key);
-    const model = gateway("google/gemini-3-flash-preview");
+    const google = createGoogleGenerativeAI({ apiKey: key });
+    const model = google("gemini-3-flash-preview");
 
     const prompt = `You are a senior UPI (India) payments fraud analyst. Decide if this UPI payment is likely a scam or fraud.
 
