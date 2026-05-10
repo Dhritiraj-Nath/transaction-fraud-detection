@@ -66,18 +66,12 @@ ${JSON.stringify(data.transaction, null, 2)}
 Return riskScore 0-100, verdict (approve <30, review 30-69, block >=70), 2-5 short signal strings, and clear reasoning a fraud analyst would write in a case file.`;
 
     try {
-      const result = await generateText({
+      const { experimental_output } = await generateText({
         model,
         prompt,
         experimental_output: Output.object({ schema: ResultSchema }),
-      } as Parameters<typeof generateText>[0]);
-      // Support both new (.output) and experimental (.experimental_output) shapes.
-      const out =
-        (result as unknown as { experimental_output?: FraudAnalysis; output?: FraudAnalysis })
-          .experimental_output ??
-        (result as unknown as { output?: FraudAnalysis }).output;
-      if (!out) throw new Error("AI returned no structured output");
-      return { error: null, analysis: out };
+      });
+      return { error: null, analysis: experimental_output as FraudAnalysis };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("analyzeTransaction failed:", msg);
