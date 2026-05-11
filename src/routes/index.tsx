@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   ShieldAlert,
@@ -53,7 +52,13 @@ function UpiFraudCheck() {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<FraudAnalysis | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const analyze = useServerFn(analyzeUpi);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/history")
+      .then(res => res.json())
+      .then(data => setHistory(data))
+      .catch(err => console.error("Failed to load history:", err));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,15 +82,18 @@ function UpiFraudCheck() {
     const heur = heuristicUpiScore({ upiId: upiId.trim(), amount: amt, note });
 
     try {
-      const res = await analyze({
-        data: {
+      const res = await fetch("http://localhost:8000/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           upiId: upiId.trim(),
           amount: amt,
           note: note || undefined,
           heuristicScore: heur.score,
           heuristicSignals: heur.signals,
-        },
-      });
+        }),
+      }).then(r => r.json());
+
       if (res.error || !res.analysis) {
         toast.error(res.error || "Analysis failed");
         return;
@@ -94,7 +102,7 @@ function UpiFraudCheck() {
       setHistory((h) =>
         [
           {
-            id: crypto.randomUUID(),
+            id: res.id || crypto.randomUUID(),
             upiId: upiId.trim(),
             amount: amt,
             note: note || undefined,
